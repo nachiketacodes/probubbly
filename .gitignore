@@ -1,0 +1,20 @@
+# Database file — never commit this
+probubbly.db
+probubbly.db-shm
+probubbly.db-wal
+
+# Environment variables — never commit this
+.env
+
+# Go build output
+*.exe
+*.out
+
+# Node modules
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+
+# OS files
+.DS_Store
+Thumbs.db
