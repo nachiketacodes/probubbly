@@ -29,17 +29,17 @@ func CreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Title == "" || req.EventDate == "" {
-    http.Error(w, "Title and event date are required", http.StatusBadRequest)
-    return
-}
-if len(req.Title) > 200 {
-    http.Error(w, "Title must be 200 characters or less", http.StatusBadRequest)
-    return
-}
-if len(req.Description) > 1000 {
-    http.Error(w, "Description must be 1000 characters or less", http.StatusBadRequest)
-    return
-}
+		http.Error(w, "Title and event date are required", http.StatusBadRequest)
+		return
+	}
+	if len(req.Title) > 200 {
+		http.Error(w, "Title must be 200 characters or less", http.StatusBadRequest)
+		return
+	}
+	if len(req.Description) > 1000 {
+		http.Error(w, "Description must be 1000 characters or less", http.StatusBadRequest)
+		return
+	}
 
 	var username string
 	err := db.DB.QueryRow(db.Rebind("SELECT username FROM users WHERE id = ?"), userID).Scan(&username)
@@ -179,4 +179,119 @@ func GetEvent(w http.ResponseWriter, r *http.Request) {
 		"event":  e,
 		"ratios": ratios,
 	})
+}
+
+func DeleteEvent(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	eventID := chi.URLParam(r, "id")
+
+	var creatorID, status string
+	err := db.DB.QueryRow(db.Rebind(`
+		SELECT creator_id, status FROM events WHERE id = ?`), eventID,
+	).Scan(&creatorID, &status)
+
+	if err == sql.ErrNoRows {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Failed to fetch event", http.StatusInternalServerError)
+		return
+	}
+
+	isAdmin := auth.IsAdmin(r)
+	if !isAdmin && creatorID != userID {
+		http.Error(w, "Only admin or event creator can delete", http.StatusForbidden)
+		return
+	}
+
+	if status == "resolved" && !isAdmin {
+		http.Error(w, "Resolved events can only be deleted by admin", http.StatusForbidden)
+		return
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		http.Error(w, "Transaction failed", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	// Refund all predictions if event is open
+	if status == "open" {
+		rows, err := tx.Query(db.Rebind(`
+			SELECT user_id, amount FROM predictions WHERE event_id = ?`), eventID,
+		)
+		if err != nil {
+			http.Error(w, "Failed to fetch predictions", http.StatusInternalServerError)
+			return
+		}
+
+		type refund struct {
+			userID string
+			amount int
+		}
+		refunds := []refund{}
+		for rows.Next() {
+			var ref refund
+			rows.Scan(&ref.userID, &ref.amount)
+			refunds = append(refunds, ref)
+		}
+		rows.Close()
+
+		now := time.Now().UTC().Format(time.RFC3339)
+		for _, ref := range refunds {
+			_, err = tx.Exec(db.Rebind(`
+				UPDATE users SET balance = balance + ? WHERE id = ?`),
+				ref.amount, ref.userID,
+			)
+			if err != nil {
+				http.Error(w, "Failed to refund predictions", http.StatusInternalServerError)
+				return
+			}
+			_, err = tx.Exec(db.Rebind(`
+				INSERT INTO transactions (id, user_id, type, amount, description, created_at)
+				VALUES (?, ?, 'payout', ?, 'Refund - event deleted', ?)`),
+				uuid.New().String(), ref.userID, ref.amount, now,
+			)
+			if err != nil {
+				http.Error(w, "Failed to record refund", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
+	// Delete house ledger entries
+	_, err = tx.Exec(db.Rebind("DELETE FROM house_ledger WHERE event_id = ?"), eventID)
+	if err != nil {
+		http.Error(w, "Failed to delete house ledger", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete predictions
+	_, err = tx.Exec(db.Rebind("DELETE FROM predictions WHERE event_id = ?"), eventID)
+	if err != nil {
+		http.Error(w, "Failed to delete predictions", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete the event
+	_, err = tx.Exec(db.Rebind("DELETE FROM events WHERE id = ?"), eventID)
+	if err != nil {
+		http.Error(w, "Failed to delete event", http.StatusInternalServerError)
+		return
+	}
+
+	if err = tx.Commit(); err != nil {
+		http.Error(w, "Failed to commit deletion", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "Event deleted successfully"})
 }
