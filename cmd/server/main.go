@@ -17,17 +17,14 @@ import (
 )
 
 func main() {
-	// Load environment variables from .env file
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
 
-	// Initialise database connection
 	if err := db.Init(); err != nil {
 		log.Fatal("Database initialisation failed:", err)
 	}
 
-	// Apply database schema
 	if err := db.ApplySchema(); err != nil {
 		log.Fatal("Schema application failed:", err)
 	}
@@ -39,53 +36,43 @@ func main() {
 
 	r := chi.NewRouter()
 
-	// Global middleware
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{
-    "http://localhost:5173",
-    "https://probubbly-app.pages.dev",
-},
+			"http://localhost:5173",
+			"https://probubbly-app.pages.dev",
+		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
 	}))
 
-	// Health check
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "Probubbly API is running")
 	})
 
-	// Public routes — no authentication required
-r.Post("/api/auth/signup", handlers.Signup)
-r.Post("/api/auth/login", handlers.Login)
-r.Post("/api/admin/promote", handlers.PromoteToAdmin)
+	// Public routes
+	r.Post("/api/auth/signup", handlers.Signup)
+	r.Post("/api/auth/login", handlers.Login)
+	r.Post("/api/admin/promote", handlers.PromoteToAdmin)
 
-	// Protected routes — authentication required
+	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.AuthMiddleware)
-
-		// Events
 		r.Get("/api/events", handlers.ListEvents)
 		r.Post("/api/events", handlers.CreateEvent)
 		r.Get("/api/events/{id}", handlers.GetEvent)
 		r.Post("/api/events/{id}/predict", handlers.PlacePrediction)
-
-		// Wallet
 		r.Get("/api/wallet", handlers.GetWallet)
 		r.Post("/api/wallet/borrow", handlers.BorrowCoins)
-
-		// Resolution (admin or creator only — checked inside handler)
 		r.Post("/api/events/{id}/resolve", handlers.ResolveEvent)
 	})
 
-	// Admin-only routes
+	// Admin routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.AuthMiddleware)
 		r.Use(auth.AdminMiddleware)
-
-		r.Post("/api/admin/promote", handlers.PromoteToAdmin)
 		r.Get("/api/admin/stats", handlers.GetPlatformStats)
 		r.Get("/api/admin/users", handlers.ListAllUsers)
 		r.Get("/api/admin/user", handlers.GetUserDetail)
