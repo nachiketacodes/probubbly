@@ -9,35 +9,25 @@ import (
 	"probubbly/internal/models"
 )
 
-// GetPlatformStats returns overview stats for admin dashboard
 func GetPlatformStats(w http.ResponseWriter, r *http.Request) {
 	var totalUsers, totalEvents, openEvents, resolvedEvents, totalPredictions int
-	var totalCoinsInPlay, totalHouseEarnings int
+	var totalCoinsInPlay, totalHouseEarnings float64
 
-	// Count users
 	db.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalUsers)
-
-	// Count events
 	db.DB.QueryRow("SELECT COUNT(*) FROM events").Scan(&totalEvents)
 	db.DB.QueryRow("SELECT COUNT(*) FROM events WHERE status = 'open'").Scan(&openEvents)
 	db.DB.QueryRow("SELECT COUNT(*) FROM events WHERE status = 'resolved'").Scan(&resolvedEvents)
-
-	// Count predictions
 	db.DB.QueryRow("SELECT COUNT(*) FROM predictions").Scan(&totalPredictions)
-
-	// Total coins in circulation (all user balances)
 	db.DB.QueryRow("SELECT COALESCE(SUM(balance), 0) FROM users").Scan(&totalCoinsInPlay)
-
-	// Total house earnings
 	db.DB.QueryRow("SELECT COALESCE(SUM(cut_amount), 0) FROM house_ledger").Scan(&totalHouseEarnings)
 
 	response := map[string]interface{}{
-		"total_users":         totalUsers,
-		"total_events":        totalEvents,
-		"open_events":         openEvents,
-		"resolved_events":     resolvedEvents,
-		"total_predictions":   totalPredictions,
-		"total_coins_in_play": totalCoinsInPlay,
+		"total_users":          totalUsers,
+		"total_events":         totalEvents,
+		"open_events":          openEvents,
+		"resolved_events":      resolvedEvents,
+		"total_predictions":    totalPredictions,
+		"total_coins_in_play":  totalCoinsInPlay,
 		"total_house_earnings": totalHouseEarnings,
 	}
 
@@ -45,13 +35,10 @@ func GetPlatformStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// ListAllUsers returns all users with their stats
 func ListAllUsers(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.DB.Query(`
 		SELECT id, login_id, username, balance, borrowed, is_admin, joined_at
-		FROM users
-		ORDER BY joined_at DESC
-	`)
+		FROM users ORDER BY joined_at DESC`)
 	if err != nil {
 		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
 		return
@@ -61,14 +48,14 @@ func ListAllUsers(w http.ResponseWriter, r *http.Request) {
 	users := []map[string]interface{}{}
 	for rows.Next() {
 		var id, loginID, username, joinedAt string
-		var balance, borrowed, isAdmin int
+		var balance, borrowed float64
+		var isAdmin int
 
 		err := rows.Scan(&id, &loginID, &username, &balance, &borrowed, &isAdmin, &joinedAt)
 		if err != nil {
 			continue
 		}
 
-		// Count predictions per user
 		var predictionCount int
 		db.DB.QueryRow("SELECT COUNT(*) FROM predictions WHERE user_id = ?", id).Scan(&predictionCount)
 
@@ -88,7 +75,6 @@ func ListAllUsers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(users)
 }
 
-// GetUserDetail returns detailed info about a specific user
 func GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("id")
 	if userID == "" {
@@ -119,7 +105,6 @@ func GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	user.IsAdmin = isAdmin == 1
 
-	// Get user's predictions
 	rows, err := db.DB.Query(`
 		SELECT p.id, p.event_id, e.title, p.side, p.amount, p.ratio, p.payout, p.created_at
 		FROM predictions p
@@ -138,51 +123,39 @@ func GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, eventID, eventTitle, side, createdAt string
 		var amount int
-		var ratio float64
-		var payout sql.NullInt64
+		var ratio, payout float64
 
 		err := rows.Scan(&id, &eventID, &eventTitle, &side, &amount, &ratio, &payout, &createdAt)
 		if err != nil {
 			continue
 		}
 
-		pred := map[string]interface{}{
+		predictions = append(predictions, map[string]interface{}{
 			"id":          id,
 			"event_id":    eventID,
 			"event_title": eventTitle,
 			"side":        side,
 			"amount":      amount,
 			"ratio":       ratio,
+			"payout":      payout,
 			"created_at":  createdAt,
-		}
-
-		if payout.Valid {
-			pred["payout"] = payout.Int64
-		} else {
-			pred["payout"] = nil
-		}
-
-		predictions = append(predictions, pred)
-	}
-
-	response := map[string]interface{}{
-		"user":        user,
-		"predictions": predictions,
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"user":        user,
+		"predictions": predictions,
+	})
 }
 
-// GetHouseLedger returns house earnings breakdown
 func GetHouseLedger(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.DB.Query(`
 		SELECT h.id, h.event_id, e.title, h.prediction_id, h.cut_amount, h.created_at
 		FROM house_ledger h
 		JOIN events e ON h.event_id = e.id
 		ORDER BY h.created_at DESC
-		LIMIT 100
-	`)
+		LIMIT 100`)
 	if err != nil {
 		http.Error(w, "Failed to fetch house ledger", http.StatusInternalServerError)
 		return
@@ -192,7 +165,7 @@ func GetHouseLedger(w http.ResponseWriter, r *http.Request) {
 	ledger := []map[string]interface{}{}
 	for rows.Next() {
 		var id, eventID, eventTitle, predictionID, createdAt string
-		var cutAmount int
+		var cutAmount float64
 
 		err := rows.Scan(&id, &eventID, &eventTitle, &predictionID, &cutAmount, &createdAt)
 		if err != nil {
@@ -200,15 +173,40 @@ func GetHouseLedger(w http.ResponseWriter, r *http.Request) {
 		}
 
 		ledger = append(ledger, map[string]interface{}{
-			"id":             id,
-			"event_id":       eventID,
-			"event_title":    eventTitle,
-			"prediction_id":  predictionID,
-			"cut_amount":     cutAmount,
-			"created_at":     createdAt,
+			"id":            id,
+			"event_id":      eventID,
+			"event_title":   eventTitle,
+			"prediction_id": predictionID,
+			"cut_amount":    cutAmount,
+			"created_at":    createdAt,
 		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ledger)
+}
+
+func PromoteToAdmin(w http.ResponseWriter, r *http.Request) {
+	secret := r.Header.Get("X-Admin-Secret")
+	if secret != "probubbly-setup-2026" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		LoginID string `json:"login_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	_, err := db.DB.Exec("UPDATE users SET is_admin = 1 WHERE login_id = ?", req.LoginID)
+	if err != nil {
+		http.Error(w, "Failed to promote user", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "User promoted to admin"})
 }

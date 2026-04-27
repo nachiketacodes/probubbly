@@ -84,6 +84,7 @@ func main() {
 		r.Use(auth.AuthMiddleware)
 		r.Use(auth.AdminMiddleware)
 
+		r.Post("/api/admin/promote", handlers.PromoteToAdmin)
 		r.Get("/api/admin/stats", handlers.GetPlatformStats)
 		r.Get("/api/admin/users", handlers.ListAllUsers)
 		r.Get("/api/admin/user", handlers.GetUserDetail)
