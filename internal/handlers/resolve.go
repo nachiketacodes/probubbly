@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// ResolveEvent marks an event's outcome and pays out winners
 func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
 	if userID == "" {
@@ -36,11 +35,10 @@ func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check user is admin or event creator
 	var creatorID string
 	var status string
-	err := db.DB.QueryRow(`
-		SELECT creator_id, status FROM events WHERE id = ?`, eventID,
+	err := db.DB.QueryRow(db.Rebind(`
+		SELECT creator_id, status FROM events WHERE id = ?`), eventID,
 	).Scan(&creatorID, &status)
 
 	if err == sql.ErrNoRows {
@@ -63,7 +61,6 @@ func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start transaction
 	tx, err := db.DB.Begin()
 	if err != nil {
 		http.Error(w, "Transaction failed to start", http.StatusInternalServerError)
@@ -71,20 +68,18 @@ func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// Mark event as resolved
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = tx.Exec(`
+	_, err = tx.Exec(db.Rebind(`
 		UPDATE events SET status = 'resolved', outcome = ?, resolved_at = ?
-		WHERE id = ?`, req.Outcome, now, eventID,
+		WHERE id = ?`), req.Outcome, now, eventID,
 	)
 	if err != nil {
 		http.Error(w, "Failed to update event", http.StatusInternalServerError)
 		return
 	}
 
-	// Get all predictions for this event
-	rows, err := tx.Query(`
-		SELECT id, user_id, side, amount, ratio FROM predictions WHERE event_id = ?`, eventID,
+	rows, err := tx.Query(db.Rebind(`
+		SELECT id, user_id, side, amount, ratio FROM predictions WHERE event_id = ?`), eventID,
 	)
 	if err != nil {
 		http.Error(w, "Failed to fetch predictions", http.StatusInternalServerError)
@@ -114,40 +109,33 @@ func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 	winnersCount := 0
 	losersCount := 0
 
-	// Process each prediction
 	for _, p := range predictions {
 		if p.side == req.Outcome {
-			// Winner — calculate payout with house cut already applied in ratio
 			grossPayout := float64(p.amount) * p.ratio
-			
-			// House cut is 3% of gross payout
 			houseCut := grossPayout * 0.03
 			netPayout := math.Round((grossPayout-houseCut)*10000) / 10000
 			totalHouseCut += houseCut
 
-			// Pay winner
-			_, err = tx.Exec(`
-				UPDATE users SET balance = balance + ? WHERE id = ?`, netPayout, p.userID,
+			_, err = tx.Exec(db.Rebind(`
+				UPDATE users SET balance = balance + ? WHERE id = ?`), netPayout, p.userID,
 			)
 			if err != nil {
 				http.Error(w, "Failed to update winner balance", http.StatusInternalServerError)
 				return
 			}
 
-			// Update prediction with payout
-			_, err = tx.Exec(`
-				UPDATE predictions SET payout = ? WHERE id = ?`, netPayout, p.id,
+			_, err = tx.Exec(db.Rebind(`
+				UPDATE predictions SET payout = ? WHERE id = ?`), netPayout, p.id,
 			)
 			if err != nil {
 				http.Error(w, "Failed to update prediction payout", http.StatusInternalServerError)
 				return
 			}
 
-			// Record payout transaction
-			_, err = tx.Exec(`
+			_, err = tx.Exec(db.Rebind(`
 				INSERT INTO transactions (id, user_id, type, amount, description, created_at)
-				VALUES (?, ?, 'payout', ?, ?, ?)`,
-				uuid.New().String(), p.userID, netPayout, 
+				VALUES (?, ?, 'payout', ?, ?, ?)`),
+				uuid.New().String(), p.userID, netPayout,
 				"Won prediction on event ("+req.Outcome+")", now,
 			)
 			if err != nil {
@@ -155,10 +143,9 @@ func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Record house cut
-			_, err = tx.Exec(`
+			_, err = tx.Exec(db.Rebind(`
 				INSERT INTO house_ledger (id, event_id, prediction_id, cut_amount, created_at)
-				VALUES (?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?)`),
 				uuid.New().String(), eventID, p.id, houseCut, now,
 			)
 			if err != nil {
@@ -168,20 +155,18 @@ func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 
 			winnersCount++
 		} else {
-			// Loser — mark payout as 0
-			_, err = tx.Exec(`
-				UPDATE predictions SET payout = 0 WHERE id = ?`, p.id,
+			_, err = tx.Exec(db.Rebind(`
+				UPDATE predictions SET payout = 0 WHERE id = ?`), p.id,
 			)
 			if err != nil {
 				http.Error(w, "Failed to update prediction", http.StatusInternalServerError)
 				return
 			}
 
-			// Record loss transaction
-			_, err = tx.Exec(`
+			_, err = tx.Exec(db.Rebind(`
 				INSERT INTO transactions (id, user_id, type, amount, description, created_at)
-				VALUES (?, ?, 'loss', 0, ?, ?)`,
-				uuid.New().String(), p.userID, 
+				VALUES (?, ?, 'loss', 0, ?, ?)`),
+				uuid.New().String(), p.userID,
 				"Lost prediction on event ("+req.Outcome+")", now,
 			)
 			if err != nil {
@@ -193,21 +178,18 @@ func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Commit transaction
 	if err = tx.Commit(); err != nil {
 		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
 		return
 	}
 
-	response := map[string]interface{}{
-		"event_id":       eventID,
-		"outcome":        req.Outcome,
-		"winners":        winnersCount,
-		"losers":         losersCount,
-		"total_house_cut": totalHouseCut,
-		"message":        "Event resolved successfully",
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"event_id":        eventID,
+		"outcome":         req.Outcome,
+		"winners":         winnersCount,
+		"losers":          losersCount,
+		"total_house_cut": totalHouseCut,
+		"message":         "Event resolved successfully",
+	})
 }

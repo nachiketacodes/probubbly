@@ -2,8 +2,10 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	_ "github.com/lib/pq"
 	_ "modernc.org/sqlite"
@@ -16,13 +18,11 @@ func Init() error {
 
 	var err error
 	if databaseURL != "" {
-		// Production — use PostgreSQL (Neon)
 		DB, err = sql.Open("postgres", databaseURL)
 		if err != nil {
 			return err
 		}
 	} else {
-		// Local development — use SQLite
 		DB, err = sql.Open("sqlite", "probubbly.db")
 		if err != nil {
 			return err
@@ -54,6 +54,29 @@ func ApplySchema() error {
 
 	log.Println("Database schema applied successfully")
 	return nil
+}
+
+// IsPostgres returns true if using PostgreSQL
+func IsPostgres() bool {
+	return os.Getenv("DATABASE_URL") != ""
+}
+
+// Rebind replaces ? placeholders with $1, $2, etc. for PostgreSQL
+func Rebind(query string) string {
+	if !IsPostgres() {
+		return query
+	}
+	count := 0
+	var result strings.Builder
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			count++
+			result.WriteString(fmt.Sprintf("$%d", count))
+		} else {
+			result.WriteByte(query[i])
+		}
+	}
+	return result.String()
 }
 
 const sqliteSchema = `

@@ -21,7 +21,8 @@ func GetPlatformStats(w http.ResponseWriter, r *http.Request) {
 	db.DB.QueryRow("SELECT COALESCE(SUM(balance), 0) FROM users").Scan(&totalCoinsInPlay)
 	db.DB.QueryRow("SELECT COALESCE(SUM(cut_amount), 0) FROM house_ledger").Scan(&totalHouseEarnings)
 
-	response := map[string]interface{}{
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"total_users":          totalUsers,
 		"total_events":         totalEvents,
 		"open_events":          openEvents,
@@ -29,10 +30,7 @@ func GetPlatformStats(w http.ResponseWriter, r *http.Request) {
 		"total_predictions":    totalPredictions,
 		"total_coins_in_play":  totalCoinsInPlay,
 		"total_house_earnings": totalHouseEarnings,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 func ListAllUsers(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +55,7 @@ func ListAllUsers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var predictionCount int
-		db.DB.QueryRow("SELECT COUNT(*) FROM predictions WHERE user_id = ?", id).Scan(&predictionCount)
+		db.DB.QueryRow(db.Rebind("SELECT COUNT(*) FROM predictions WHERE user_id = ?"), id).Scan(&predictionCount)
 
 		users = append(users, map[string]interface{}{
 			"id":               id,
@@ -86,9 +84,9 @@ func GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	var lastBorrow sql.NullString
 	var isAdmin int
 
-	err := db.DB.QueryRow(`
+	err := db.DB.QueryRow(db.Rebind(`
 		SELECT id, login_id, username, balance, borrowed, last_borrow, is_admin, joined_at
-		FROM users WHERE id = ?`, userID,
+		FROM users WHERE id = ?`), userID,
 	).Scan(&user.ID, &user.LoginID, &user.Username, &user.Balance, &user.Borrowed, &lastBorrow, &isAdmin, &user.JoinedAt)
 
 	if err == sql.ErrNoRows {
@@ -105,13 +103,13 @@ func GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	user.IsAdmin = isAdmin == 1
 
-	rows, err := db.DB.Query(`
+	rows, err := db.DB.Query(db.Rebind(`
 		SELECT p.id, p.event_id, e.title, p.side, p.amount, p.ratio, p.payout, p.created_at
 		FROM predictions p
 		JOIN events e ON p.event_id = e.id
 		WHERE p.user_id = ?
 		ORDER BY p.created_at DESC
-		LIMIT 20`, userID,
+		LIMIT 20`), userID,
 	)
 	if err != nil {
 		http.Error(w, "Failed to fetch predictions", http.StatusInternalServerError)
@@ -201,7 +199,7 @@ func PromoteToAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := db.DB.Exec("UPDATE users SET is_admin = 1 WHERE login_id = ?", req.LoginID)
+	_, err := db.DB.Exec(db.Rebind("UPDATE users SET is_admin = 1 WHERE login_id = ?"), req.LoginID)
 	if err != nil {
 		http.Error(w, "Failed to promote user", http.StatusInternalServerError)
 		return

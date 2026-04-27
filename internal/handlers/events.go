@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateEvent handles new event creation
 func CreateEvent(w http.ResponseWriter, r *http.Request) {
 	userID := auth.GetUserID(r)
 	if userID == "" {
@@ -34,9 +33,8 @@ func CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get creator username
 	var username string
-	err := db.DB.QueryRow("SELECT username FROM users WHERE id = ?", userID).Scan(&username)
+	err := db.DB.QueryRow(db.Rebind("SELECT username FROM users WHERE id = ?"), userID).Scan(&username)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
@@ -45,10 +43,10 @@ func CreateEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.DB.Exec(`
-		INSERT INTO events (id, title, description, event_date, event_time, creator_id, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'open', ?)`,
-		eventID, req.Title, req.Description, req.EventDate, req.EventTime, userID, now,
+	_, err = db.DB.Exec(db.Rebind(`
+		INSERT INTO events (id, title, description, event_date, event_time, creator_id, creator_name, status, yes_coins, no_coins, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'open', 0, 0, ?)`),
+		eventID, req.Title, req.Description, req.EventDate, req.EventTime, userID, username, now,
 	)
 	if err != nil {
 		http.Error(w, "Failed to create event", http.StatusInternalServerError)
@@ -73,27 +71,24 @@ func CreateEvent(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(event)
 }
 
-// ListEvents returns all events with optional status filter
 func ListEvents(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 
 	query := `
-		SELECT e.id, e.title, e.description, e.event_date, e.event_time, 
+		SELECT e.id, e.title, e.description, e.event_date, e.event_time,
 		       e.creator_id, u.username, e.status, e.yes_coins, e.no_coins,
 		       e.outcome, e.resolved_at, e.created_at
 		FROM events e
-		JOIN users u ON e.creator_id = u.id
-	`
+		JOIN users u ON e.creator_id = u.id`
 
 	args := []interface{}{}
 	if status != "" {
 		query += " WHERE e.status = ?"
 		args = append(args, status)
 	}
-
 	query += " ORDER BY e.created_at DESC"
 
-	rows, err := db.DB.Query(query, args...)
+	rows, err := db.DB.Query(db.Rebind(query), args...)
 	if err != nil {
 		http.Error(w, "Failed to fetch events", http.StatusInternalServerError)
 		return
@@ -131,20 +126,19 @@ func ListEvents(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(events)
 }
 
-// GetEvent returns a single event with full details including predictions
 func GetEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "id")
 
 	var e models.Event
 	var eventTime, outcome, resolvedAt sql.NullString
 
-	err := db.DB.QueryRow(`
+	err := db.DB.QueryRow(db.Rebind(`
 		SELECT e.id, e.title, e.description, e.event_date, e.event_time,
 		       e.creator_id, u.username, e.status, e.yes_coins, e.no_coins,
 		       e.outcome, e.resolved_at, e.created_at
 		FROM events e
 		JOIN users u ON e.creator_id = u.id
-		WHERE e.id = ?`, eventID,
+		WHERE e.id = ?`), eventID,
 	).Scan(
 		&e.ID, &e.Title, &e.Description, &e.EventDate, &eventTime,
 		&e.CreatorID, &e.CreatorName, &e.Status, &e.YesCoins, &e.NoCoins,
@@ -170,14 +164,11 @@ func GetEvent(w http.ResponseWriter, r *http.Request) {
 		e.ResolvedAt = resolvedAt.String
 	}
 
-	// Calculate current ratios
 	ratios := ratio.Compute(e.YesCoins, e.NoCoins)
 
-	response := map[string]interface{}{
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"event":  e,
 		"ratios": ratios,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
