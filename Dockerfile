@@ -3,6 +3,9 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
+# Install CGO dependencies in builder stage
+RUN apk --no-cache add gcc musl-dev
+
 # Copy go mod files
 COPY go.mod go.sum ./
 RUN go mod download
@@ -18,8 +21,8 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install dependencies for CGO/SQLite
-RUN apk --no-cache add ca-certificates gcc musl-dev
+# Install ca-certificates for HTTPS
+RUN apk --no-cache add ca-certificates
 
 # Copy binary from builder
 COPY --from=builder /app/server .
