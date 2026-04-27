@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -18,12 +18,11 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install ca-certificates for HTTPS
+# Install dependencies for CGO/SQLite
 RUN apk --no-cache add ca-certificates gcc musl-dev
 
 # Copy binary from builder
 COPY --from=builder /app/server .
-COPY --from=builder /app/internal ./internal
 
 # Expose port
 EXPOSE 8080
