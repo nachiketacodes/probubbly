@@ -66,6 +66,11 @@ export const api = {
 			body: JSON.stringify({ outcome })
 		}),
 
+	deleteEvent: (eventId: string) =>
+    apiRequest(`/api/events/${eventId}`, {
+        method: 'DELETE'
+    }),
+
 	// Wallet
 	getWallet: () => apiRequest('/api/wallet'),
 

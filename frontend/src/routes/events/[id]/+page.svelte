@@ -89,6 +89,25 @@
 		}
 	}
 
+
+	async function handleDelete() {
+    if (!confirm('Delete this event? If open, all predictions will be refunded.')) return;
+    resolving = true;
+    try {
+        const res = await api.deleteEvent(eventId);
+        if (res.ok) {
+            goto('/events');
+        } else {
+            const data = await res.json();
+            alert(data.error || 'Failed to delete event');
+        }
+    } catch (err) {
+        alert('Connection failed');
+    } finally {
+        resolving = false;
+    }
+}
+
 	async function handleResolve(outcome: string) {
 		if (!confirm(`Resolve this event as ${outcome.toUpperCase()}? This cannot be undone.`)) return;
 		resolving = true;
@@ -284,33 +303,46 @@
 			{/if}
 
 			{#if user?.is_admin || event.creator_id === user?.id}
-				{#if event.status === 'open'}
-					<div class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
-						<p class="text-sm font-semibold text-amber-800 mb-3">⚙ Resolve Event</p>
-						<p class="text-xs text-amber-700 mb-4">
-							Once resolved, payouts are calculated and distributed automatically.
-						</p>
-						<div class="flex gap-3">
-							<button
-								on:click={() => handleResolve('yes')}
-								disabled={resolving}
-								style="background-color: #16a34a; color: white;"
-								class="flex-1 py-2.5 text-sm font-medium rounded-lg disabled:opacity-50"
-							>
-								Resolve as YES
-							</button>
-							<button
-								on:click={() => handleResolve('no')}
-								disabled={resolving}
-								style="background-color: #dc2626; color: white;"
-								class="flex-1 py-2.5 text-sm font-medium rounded-lg disabled:opacity-50"
-							>
-								Resolve as NO
-							</button>
-						</div>
-					</div>
-				{/if}
-			{/if}
+    {#if event.status === 'open' && user?.is_admin}
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
+            <p class="text-sm font-semibold text-amber-800 mb-3">⚙ Resolve Event</p>
+            <p class="text-xs text-amber-700 mb-4">Once resolved, payouts are calculated and distributed automatically.</p>
+            <div class="flex gap-3">
+                <button
+                    on:click={() => handleResolve('yes')}
+                    disabled={resolving}
+                    style="background-color: #16a34a; color: white;"
+                    class="flex-1 py-2.5 text-sm font-medium rounded-lg disabled:opacity-50"
+                >
+                    Resolve as YES
+                </button>
+                <button
+                    on:click={() => handleResolve('no')}
+                    disabled={resolving}
+                    style="background-color: #dc2626; color: white;"
+                    class="flex-1 py-2.5 text-sm font-medium rounded-lg disabled:opacity-50"
+                >
+                    Resolve as NO
+                </button>
+            </div>
+        </div>
+    {/if}
+
+    <div class="bg-red-50 border border-red-200 rounded-xl p-5 mb-6">
+        <p class="text-sm font-semibold text-red-800 mb-1">🗑 Delete Event</p>
+        <p class="text-xs text-red-600 mb-3">
+            {event.status === 'open' ? 'All predictions will be refunded automatically.' : 'Admin only — resolved event deletion.'}
+        </p>
+        <button
+            on:click={handleDelete}
+            disabled={resolving}
+            style="background-color: #dc2626; color: white;"
+            class="w-full py-2.5 text-sm font-medium rounded-lg disabled:opacity-50"
+        >
+            Delete Event
+        </button>
+    </div>
+{/if}
 		{/if}
 	</div>
 </div>
