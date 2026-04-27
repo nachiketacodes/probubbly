@@ -110,11 +110,21 @@ func BorrowCoins(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(db.Rebind(`
-		UPDATE users
-		SET balance = balance + ?, borrowed = borrowed + ?, last_borrow = ?
-		WHERE id = ?`), borrowAmount, borrowAmount, nowStr, userID,
-	)
+	result, err := tx.Exec(db.Rebind(`
+    UPDATE users
+    SET balance = balance + ?, borrowed = borrowed + ?, last_borrow = ?
+    WHERE id = ? AND (last_borrow IS NULL OR last_borrow NOT LIKE ?)`),
+    borrowAmount, borrowAmount, nowStr, userID, today+"%",
+)
+if err != nil {
+    http.Error(w, "Failed to update balance", http.StatusInternalServerError)
+    return
+}
+rowsAffected, _ := result.RowsAffected()
+if rowsAffected == 0 {
+    http.Error(w, "Daily loan already used today.", http.StatusBadRequest)
+    return
+}
 	if err != nil {
 		http.Error(w, "Failed to update balance", http.StatusInternalServerError)
 		return

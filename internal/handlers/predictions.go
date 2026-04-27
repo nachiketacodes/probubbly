@@ -73,7 +73,7 @@ func PlacePrediction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var balance float64
-	err = tx.QueryRow(db.Rebind("SELECT balance FROM users WHERE id = ?"), userID).Scan(&balance)
+err = tx.QueryRow(db.Rebind("SELECT balance FROM users WHERE id = ? FOR UPDATE"), userID).Scan(&balance)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return

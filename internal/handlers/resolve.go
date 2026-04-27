@@ -51,10 +51,10 @@ func ResolveEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isAdmin := auth.IsAdmin(r)
-	if !isAdmin && creatorID != userID {
-		http.Error(w, "Only admin or event creator can resolve", http.StatusForbidden)
-		return
-	}
+if !isAdmin {
+    http.Error(w, "Only admin can resolve events", http.StatusForbidden)
+    return
+}
 
 	if status != "open" {
 		http.Error(w, "Event is already resolved", http.StatusBadRequest)

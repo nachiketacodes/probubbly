@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"probubbly/internal/auth"
 	"probubbly/internal/db"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/go-chi/httprate"
 	"github.com/joho/godotenv"
 )
 
@@ -52,12 +54,18 @@ func main() {
 		fmt.Fprintln(w, "Probubbly API is running")
 	})
 
-	// Public routes
-	r.Post("/api/auth/signup", handlers.Signup)
-	r.Post("/api/auth/login", handlers.Login)
-
-	// Protected routes
+	// Public routes with strict rate limiting
 	r.Group(func(r chi.Router) {
+		// 10 requests per minute per IP for auth endpoints
+		r.Use(httprate.LimitByIP(10, time.Minute))
+		r.Post("/api/auth/signup", handlers.Signup)
+		r.Post("/api/auth/login", handlers.Login)
+	})
+
+	// Protected routes with generous rate limiting
+	r.Group(func(r chi.Router) {
+		// 100 requests per minute per IP for normal usage
+		r.Use(httprate.LimitByIP(100, time.Minute))
 		r.Use(auth.AuthMiddleware)
 		r.Get("/api/events", handlers.ListEvents)
 		r.Post("/api/events", handlers.CreateEvent)
@@ -70,6 +78,7 @@ func main() {
 
 	// Admin routes
 	r.Group(func(r chi.Router) {
+		r.Use(httprate.LimitByIP(30, time.Minute))
 		r.Use(auth.AuthMiddleware)
 		r.Use(auth.AdminMiddleware)
 		r.Get("/api/admin/stats", handlers.GetPlatformStats)

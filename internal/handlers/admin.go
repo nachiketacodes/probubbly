@@ -183,28 +183,3 @@ func GetHouseLedger(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ledger)
 }
-
-func PromoteToAdmin(w http.ResponseWriter, r *http.Request) {
-	secret := r.Header.Get("X-Admin-Secret")
-	if secret != "probubbly-setup-2026" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	var req struct {
-		LoginID string `json:"login_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	_, err := db.DB.Exec(db.Rebind("UPDATE users SET is_admin = 1 WHERE login_id = ?"), req.LoginID)
-	if err != nil {
-		http.Error(w, "Failed to promote user", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "User promoted to admin"})
-}

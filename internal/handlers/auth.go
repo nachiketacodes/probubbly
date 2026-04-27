@@ -36,9 +36,13 @@ func Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Username == "" {
-		http.Error(w, "Username is required", http.StatusBadRequest)
-		return
-	}
+    http.Error(w, "Username is required", http.StatusBadRequest)
+    return
+}
+if len(req.Username) > 30 {
+    http.Error(w, "Username must be 30 characters or less", http.StatusBadRequest)
+    return
+}
 
 	var existing string
 	err := db.DB.QueryRow(db.Rebind("SELECT id FROM users WHERE login_id = ?"), req.LoginID).Scan(&existing)

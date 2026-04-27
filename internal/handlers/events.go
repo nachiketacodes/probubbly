@@ -29,9 +29,17 @@ func CreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Title == "" || req.EventDate == "" {
-		http.Error(w, "Title and event date are required", http.StatusBadRequest)
-		return
-	}
+    http.Error(w, "Title and event date are required", http.StatusBadRequest)
+    return
+}
+if len(req.Title) > 200 {
+    http.Error(w, "Title must be 200 characters or less", http.StatusBadRequest)
+    return
+}
+if len(req.Description) > 1000 {
+    http.Error(w, "Description must be 1000 characters or less", http.StatusBadRequest)
+    return
+}
 
 	var username string
 	err := db.DB.QueryRow(db.Rebind("SELECT username FROM users WHERE id = ?"), userID).Scan(&username)
