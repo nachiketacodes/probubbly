@@ -58,8 +58,9 @@ func main() {
 	})
 
 	// Public routes — no authentication required
-	r.Post("/api/auth/signup", handlers.Signup)
-	r.Post("/api/auth/login", handlers.Login)
+r.Post("/api/auth/signup", handlers.Signup)
+r.Post("/api/auth/login", handlers.Login)
+r.Post("/api/admin/promote", handlers.PromoteToAdmin)
 
 	// Protected routes — authentication required
 	r.Group(func(r chi.Router) {
