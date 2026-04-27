@@ -55,7 +55,6 @@ func main() {
 	// Public routes
 	r.Post("/api/auth/signup", handlers.Signup)
 	r.Post("/api/auth/login", handlers.Login)
-	r.Post("/api/admin/promote", handlers.PromoteToAdmin)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
